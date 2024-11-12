@@ -14,10 +14,15 @@ library(devtools)
 devtools::install_github("immunogenomics/presto", dependencies = FALSE) #this doesn't work
 library(presto)
 
+library(BiocManager)
+BiocManager::install("rhdf5")
+# bruh: subject1_blood <- h5read("..Downloads/GSE241739_Subject_5_Blood_molecule_info.h5")
 
-D03 <- Read10X(data.dir = "../Desktop/seuratdata/GSE242039_RAW/D03")
-D07 <- Read10X(data.dir = "../Desktop/seuratdata/GSE242039_RAW/D07")
-D14 <- Read10X(data.dir = "../Desktop/seuratdata/GSE242039_RAW/D14")
+
+#SEURAT CLUSTERING PART
+D03 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D03_rna")
+D07 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D07_rna")
+D14 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D14_rna")
 
 D03 <- CreateSeuratObject(counts = D03, project = "D03")
 D07 <- CreateSeuratObject(counts = D07, project = "D07")
@@ -47,10 +52,11 @@ GSE <- FindClusters(GSE, resolution = 1)
 
 GSE <- RunUMAP(GSE, dims = 1:24)
 DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "seurat_clusters", split.by = "orig.ident")
+DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "seurat_clusters")
 
 
 GSE <- JoinLayers(GSE)
-GSE.markers <- FindAllMarkers(GSE, only.pos = TRUE, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
+GSE.markers <- FindAllMarkers(GSE, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
 GSE.markers_power <- group_by(GSE.markers, cluster) %>% arrange(power) %>% slice(which.max(power))
 view(GSE.markers_power)
 
@@ -95,4 +101,50 @@ view(GSE.markers)
 GSE_markers <- GetAssayData(object = GSE, assay = "RNA", layer = "scale.data")
 fwrite(GSE.markers_power, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_markers.csv")
 write.csv(GSE, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_markers")
+
+
+
+
+#LOOKING AT T CELLS
+library(rhdf5)
+BiocManager::install("SingleR")
+library(SingleR)
+BiocManager::install("celldex")
+library(celldex)
+
+D03 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D03_rna")
+D07 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D07_rna")
+D14 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D14_rna")
+
+D03 <- CreateSeuratObject(counts = D03, project = "D03")
+D07 <- CreateSeuratObject(counts = D07, project = "D07")
+D14 <- CreateSeuratObject(counts = D14, project = "D14")
+
+GSE <- merge(x = D03, y = c(D07, D14))
+GSE <- NormalizeData(GSE)
+GSE <- JoinLayers(GSE) #temporary solution
+#GSE <- IntegrateLayers(GSE, method = CCAIntegration) - having problems w/ this
+
+listReferences()
+reference_dataset <- MouseRNAseqData()
+#reference_dataset <- LogNormalize(reference_dataset)
+singleR_results <- SingleR(test = GSE@assays$RNA$counts, ref = reference_dataset,
+                           labels = reference_dataset$label.fine)
+view(singleR_results)
+table(singleR_results$labels)
+rownames(singleR_results) %in% colnames(GSE)  #double checking that everything is aligned
+GSE[["cell_type"]] <- singleR_results$pruned.labels
+view(GSE)
+
+GSE_tcell <- subset(GSE, cell_type == "T cells")
+FeatureScatter(GSE_tcell, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + geom_smooth(method = "lm")
+GSE_tcell <- subset(GSE_tcell, subset = nCount_RNA < 15000 & nFeature_RNA > 1000) #correlation = 0.94
+GSE_tcell <- NormalizeData(GSE_tcell)
+view(GSE_tcell)
+
+colnames(GSE_tcell)
+
+
+
+
 
