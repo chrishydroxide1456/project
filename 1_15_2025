@@ -20,7 +20,7 @@ library(SeuratWrappers)
 #try to improve pseudotime analysis
 #adjust QC parameters
 
-#SEURAT CLUSTERING PART
+#SEURAT
 D03 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D03_rna")
 D07 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D07_rna")
 D14 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D14_rna")
@@ -29,6 +29,7 @@ D03 <- CreateSeuratObject(counts = D03, project = "D03")
 D07 <- CreateSeuratObject(counts = D07, project = "D07")
 D14 <- CreateSeuratObject(counts = D14, project = "D14")
 
+#quality control: subsetting, normalizing, scaling
 D03 <- NormalizeData(D03)
 D07 <- NormalizeData(D07)
 D14 <- NormalizeData(D14)
@@ -47,6 +48,7 @@ LabelPoints(GSE.varplot, points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
 all.genes <- rownames(GSE)
 GSE <- ScaleData(GSE, features = all.genes)
 
+#Principal Component Analysis, dimensionality reduction, UMAP plot
 GSE <- RunPCA(GSE)
 ElbowPlot(GSE, reduction = "pca", ndims = 30)
 
@@ -64,36 +66,12 @@ GSE.markers <- FindAllMarkers(GSE, test.use = "roc") %>% group_by(cluster) %>% f
 GSE.markers_power <- group_by(GSE.markers, cluster) %>% arrange(power) %>% slice(which.max(power))
 view(GSE.markers_power)
 
+#finding marker genes for each cluster
 GSE.markers_test <- FindAllMarkers(GSE, test.use = "roc")
+#confidence level of those markers
 GSE.markers_test_power <- group_by(GSE.markers_test, cluster) %>% arrange(power) %>% slice(which.max(power))
 levels(GSE.markers_test_power$cluster) #bruh clusters 15-18 don't have markers??? actually gonna crash out
 view(GSE.markers_test_power)
-#new.cluster.ids <- c(filter(GSE.markers_power, cluster == 0)$gene,
-#                     filter(GSE.markers_power, cluster == 1)$gene,
-#                     filter(GSE.markers_power, cluster == 2)$gene,
-#                    filter(GSE.markers_power, cluster == 3)$gene,
-#                    filter(GSE.markers_power, cluster == 4)$gene,
-#                    filter(GSE.markers_power, cluster == 5)$gene,
-#                    filter(GSE.markers_power, cluster == 6)$gene,
-#                    filter(GSE.markers_power, cluster == 7)$gene,
-#                    filter(GSE.markers_power, cluster == 8)$gene,
-#                    filter(GSE.markers_power, cluster == 9)$gene,
-#                    filter(GSE.markers_power, cluster == 10)$gene,
-#                    filter(GSE.markers_power, cluster == 11)$gene,
-#                    filter(GSE.markers_power, cluster == 12)$gene,
-#                    filter(GSE.markers_power, cluster == 13)$gene,
-#                    filter(GSE.markers_power, cluster == 14)$gene,
-#                    "15",
-#                    "16",
-#                    "17",
-#                    "18")
-names(new.cluster.ids) <- levels(GSE) #levels(GSE) uses markers from GSE seurat object
-#that were discovered using ROC test. highest power marker is displayed by default
-GSE <- RenameIdents(GSE,new.cluster.ids)
-DimPlot(GSE, reduction = "umap", label = TRUE, repel = FALSE)
-DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, 
-        group.by = "seurat_clusters", split.by = "orig.ident")
-FeaturePlot(object = GSE, features = "AW112010")
 
 view(GSE)
 GSE_data <- GetAssayData(object = GSE, assay = "RNA", layer = "scale.data")
@@ -105,14 +83,10 @@ fwrite(GSE.markers_power, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Re
 write.csv(GSE, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_markers")
 
 
-
-
-#SingleR
+#SingleR: determining cell type by aligning RNA seqs to a reference genome
 listReferences()
 reference_dataset <- MouseRNAseqData()
 MouseRNAseqData()
-BiocManager::install("celldex")
-
 
 #reference_dataset <- LogNormalize(reference_dataset)
 singleR_results <- SingleR(test = GSE@assays$RNA$counts, ref = reference_dataset,
@@ -123,14 +97,14 @@ rownames(singleR_results) %in% colnames(GSE)  #double checking that everything i
 GSE[["cell_type"]] <- singleR_results$pruned.labels
 view(GSE)
 
+#plotting umap, color coding based on cell type
 DimPlot(GSE, reduction = "umap", label = TRUE, group.by = "cell_type")
 
 
 
 
 
-
-
+#trajectory analysis (tweak later)
 GSE <- JoinLayers(GSE)
 cds <- SeuratWrappers::as.cell_data_set(GSE)
 cds <- cluster_cells(cds)
