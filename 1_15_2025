@@ -167,6 +167,7 @@ cds_tcell <- order_cells(cds_tcell)
 
 plot_cells(cds_tcell, color_cells_by = "pseudotime", label_branch_points = FALSE, label_leaves = FALSE)
 
+#show which T cells express certain genes (argument for "features" is the gene being shown)
 FeaturePlot(GSE_tcell, features = c("Tpt1"))
 FeaturePlot(GSE_tcell, features = c("Rpl23"))
 FeaturePlot(GSE_tcell, features = c("mt-Atp6"))
