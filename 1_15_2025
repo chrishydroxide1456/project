@@ -1,23 +1,24 @@
 library(Seurat)
 library(tidyverse)
-remotes::install_github("satijalab/seurat-wrappers")
-library(SeuratWrappers)
-devtools::install_github("satijalab/seurat-data")
-
-install.packages("BiocManager")
-BiocManager::install("scRepertoire")
 library(ggplot2)
 library(scRepertoire)
-
-install.packages("devtools", type = "win.binary")
 library(devtools)
-devtools::install_github("immunogenomics/presto", dependencies = FALSE) #this doesn't work
 library(presto)
-
 library(BiocManager)
-BiocManager::install("rhdf5")
-# bruh: subject1_blood <- h5read("..Downloads/GSE241739_Subject_5_Blood_molecule_info.h5")
+library(data.table)
+library(rhdf5)
+library(SingleR)
+library(celldex)
+library(monocle3)
+library(monocle)
+library(remotes)
+library(R.utils)
+library(SeuratWrappers)
 
+#install celldex and get MouseRNAseqData dataset to report later
+#look for tcell receptor and general receptor seq tool
+#try to improve pseudotime analysis
+#adjust QC parameters
 
 #SEURAT CLUSTERING PART
 D03 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D03_rna")
@@ -28,13 +29,15 @@ D03 <- CreateSeuratObject(counts = D03, project = "D03")
 D07 <- CreateSeuratObject(counts = D07, project = "D07")
 D14 <- CreateSeuratObject(counts = D14, project = "D14")
 
+D03 <- NormalizeData(D03)
+D07 <- NormalizeData(D07)
+D14 <- NormalizeData(D14)
+
 GSE <- merge(x = D03, y = c(D07, D14))
 
 GSE[["percent.mt"]] <- PercentageFeatureSet(GSE, pattern = "^MT-")
 FeatureScatter(GSE, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + geom_smooth(method = "lm")
-GSE <- subset(GSE, subset = nFeature_RNA < 2400 & nFeature_RNA > 300 & percent.mt < 5)
-
-GSE <- NormalizeData(GSE)
+GSE <- subset(GSE, subset = nCount_RNA < 15000 & nFeature_RNA > 300 & nFeature_RNA < 3700 & percent.mt < 5)
 
 GSE <- FindVariableFeatures(GSE, nfeatures = 2000)
 GSE.varplot <- VariableFeaturePlot(GSE)
@@ -50,10 +53,11 @@ ElbowPlot(GSE, reduction = "pca", ndims = 30)
 GSE <- FindNeighbors(GSE, dims = 1:24)
 GSE <- FindClusters(GSE, resolution = 1)
 
-GSE <- RunUMAP(GSE, dims = 1:24)
+GSE <- RunUMAP(GSE, dims = 1:24, reduction = "pca")
 DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "seurat_clusters", split.by = "orig.ident")
 DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "seurat_clusters")
 
+DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "orig.ident")
 
 GSE <- JoinLayers(GSE)
 GSE.markers <- FindAllMarkers(GSE, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
@@ -62,7 +66,7 @@ view(GSE.markers_power)
 
 GSE.markers_test <- FindAllMarkers(GSE, test.use = "roc")
 GSE.markers_test_power <- group_by(GSE.markers_test, cluster) %>% arrange(power) %>% slice(which.max(power))
-levels(GSE.markers_test_power$cluster) #clusters 15-18 don't have markers???
+levels(GSE.markers_test_power$cluster) #bruh clusters 15-18 don't have markers??? actually gonna crash out
 view(GSE.markers_test_power)
 #new.cluster.ids <- c(filter(GSE.markers_power, cluster == 0)$gene,
 #                     filter(GSE.markers_power, cluster == 1)$gene,
@@ -91,8 +95,6 @@ DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE,
         group.by = "seurat_clusters", split.by = "orig.ident")
 FeaturePlot(object = GSE, features = "AW112010")
 
-library(data.table)
-
 view(GSE)
 GSE_data <- GetAssayData(object = GSE, assay = "RNA", layer = "scale.data")
 fwrite(GSE_data, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_data.csv")
@@ -105,28 +107,13 @@ write.csv(GSE, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_m
 
 
 
-#LOOKING AT T CELLS
-library(rhdf5)
-BiocManager::install("SingleR")
-library(SingleR)
-BiocManager::install("celldex")
-library(celldex)
-
-D03 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D03_rna")
-D07 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D07_rna")
-D14 <- Read10X(data.dir = "../Desktop/GSE242039 All/GSE242039_RNA/rna_data/D14_rna")
-
-D03 <- CreateSeuratObject(counts = D03, project = "D03")
-D07 <- CreateSeuratObject(counts = D07, project = "D07")
-D14 <- CreateSeuratObject(counts = D14, project = "D14")
-
-GSE <- merge(x = D03, y = c(D07, D14))
-GSE <- NormalizeData(GSE)
-GSE <- JoinLayers(GSE) #temporary solution
-#GSE <- IntegrateLayers(GSE, method = CCAIntegration) - having problems w/ this
-
+#SingleR
 listReferences()
 reference_dataset <- MouseRNAseqData()
+MouseRNAseqData()
+BiocManager::install("celldex")
+
+
 #reference_dataset <- LogNormalize(reference_dataset)
 singleR_results <- SingleR(test = GSE@assays$RNA$counts, ref = reference_dataset,
                            labels = reference_dataset$label.fine)
@@ -136,15 +123,101 @@ rownames(singleR_results) %in% colnames(GSE)  #double checking that everything i
 GSE[["cell_type"]] <- singleR_results$pruned.labels
 view(GSE)
 
+DimPlot(GSE, reduction = "umap", label = TRUE, group.by = "cell_type")
+
+
+
+
+
+
+
+GSE <- JoinLayers(GSE)
+cds <- SeuratWrappers::as.cell_data_set(GSE)
+cds <- cluster_cells(cds)
+
+plot_cells(cds, show_trajectory_graph = FALSE, color_cells_by = "partition")
+cds <- learn_graph(cds, use_partition = FALSE)
+cds <- order_cells(cds)
+
+plot_cells(cds, color_cells_by = "pseudotime", label_branch_points = FALSE, label_leaves = FALSE)
+
+
+DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "orig.ident")
+
+
+#T cells
 GSE_tcell <- subset(GSE, cell_type == "T cells")
-FeatureScatter(GSE_tcell, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + geom_smooth(method = "lm")
-GSE_tcell <- subset(GSE_tcell, subset = nCount_RNA < 15000 & nFeature_RNA > 1000) #correlation = 0.94
-GSE_tcell <- NormalizeData(GSE_tcell)
+DimPlot(GSE_tcell, reduction = "umap", split.by = "orig.ident")
+DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
+
+T_cells <- colnames(GSE_tcell)
+DimPlot(GSE, reduction = "umap", split.by = "orig.ident", cells.highlight = T_cells)
+
+ncol(subset(GSE_tcell, orig.ident == "D03"))
+ncol(subset(GSE_tcell, orig.ident == "D07"))
+ncol(subset(GSE_tcell, orig.ident == "D14"))
+
+JoinLayers(GSE_tcell)
+GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc")
+view(GSE_tcell.markers)
+
+
+DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
+GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
+
+GSE_tcell11 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "11")
+GSE_tcell15 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "15")
+GSE_tcell18 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "18")
+GSE_tcell_power.markers <- c(GSE_tcell11$gene[which.max(GSE_tcell11$power)],
+                             GSE_tcell15$gene[which.max(GSE_tcell15$power)],
+                             GSE_tcell18$gene[which.max(GSE_tcell18$power)])
+GSE_tcell_power.markers[1]
+GSE_tcell_power.markers[2]
+GSE_tcell_power.markers[3]
+
+new.cluster.ids <- c(GSE_tcell_power.markers[1],
+                     GSE_tcell_power.markers[2],
+                     GSE_tcell_power.markers[3])
+names(new.cluster.ids) <- levels(GSE_tcell) #levels(GSE) uses markers from GSE seurat object
+#that were discovered using ROC test. highest power marker is displayed by default
+GSE_tcell <- RenameIdents(GSE_tcell,new.cluster.ids)
+DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident", label = FALSE)
+
+GSE_tcell <- JoinLayers(GSE_tcell)
+cds_tcell <- SeuratWrappers::as.cell_data_set(GSE_tcell)
+cds_tcell <- cluster_cells(cds_tcell)
+
+plot_cells(cds_tcell, show_trajectory_graph = TRUE, color_cells_by = "partition")
+cds_tcell <- learn_graph(cds_tcell, use_partition = FALSE)
+cds_tcell <- order_cells(cds_tcell)
+
+plot_cells(cds_tcell, color_cells_by = "pseudotime", label_branch_points = FALSE, label_leaves = FALSE)
+
+FeaturePlot(GSE_tcell, features = c("Tpt1"))
+FeaturePlot(GSE_tcell, features = c("Rpl23"))
+FeaturePlot(GSE_tcell, features = c("mt-Atp6"))
+FeaturePlot(GSE_tcell, features = c("Fau"))
 view(GSE_tcell)
-
-colnames(GSE_tcell)
-
+view(GSE_tcell.markers)
 
 
+#Granulocytes
+GSE_g <- subset(GSE, cell_type == "Granulocytes")
+DimPlot(GSE_g, reduction = "umap", split.by = "orig.ident")
+DimPlot(GSE_g, reduction = "umap", group.by = "orig.ident")
 
+Granulocytes <- colnames(GSE_g)
+DimPlot(GSE, reduction = "umap", split.by = "orig.ident", cells.highlight = Granulocytes)
+
+ncol(subset(GSE_tcell, orig.ident == "D03"))
+ncol(subset(GSE_tcell, orig.ident == "D07"))
+ncol(subset(GSE_tcell, orig.ident == "D14"))
+
+JoinLayers(GSE_tcell)
+GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc")
+view(GSE_tcell.markers)
+
+
+DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
+GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
 
