@@ -54,13 +54,14 @@ GSE <- IntegrateLayers(object = GSE, method = CCAIntegration,
 GSE <- JoinLayers(GSE)
 
 GSE <- FindNeighbors(GSE, dims = 1:34, reduction = "cca")
-GSE <- FindClusters(GSE, resolution = 1.5, cluster.name = "cca_clusters",
+GSE <- FindClusters(GSE, resolution = 0.6, cluster.name = "cca_clusters",
                     algorithm = 4)
 
 GSE <- RunUMAP(GSE, dims = 1:34, reduction.name = "cca")
 DimPlot(GSE, reduction = "cca", group.by = "orig.ident")
 DimPlot(GSE, reduction = "cca", group.by = "cca_clusters")
 
+view(GSE.markers_test)
 GSE.markers_test <- FindAllMarkers(GSE)
 GSE.markers_test <- FindAllMarkers(GSE, test.use = "roc")
 view(GSE.markers_test)
@@ -86,19 +87,34 @@ write.csv(GSE, "C:/Users/Chris Oh/Desktop/seuratdata/GSE242039_RAW/Results/GSE_m
 #SingleR
 listReferences()
 reference_dataset <- MouseRNAseqData()
+reference_dataset <- NormalizeData(reference_dataset)
 MouseRNAseqData()
 BiocManager::install("celldex")
 
-#reference_dataset <- LogNormalize(reference_dataset)
 singleR_results <- SingleR(test = GSE@assays$RNA$counts, ref = reference_dataset,
                            labels = reference_dataset$label.fine)
 view(singleR_results)
 table(singleR_results$labels)
 rownames(singleR_results) %in% colnames(GSE)  #double checking that everything is aligned
-GSE[["cell_type"]] <- singleR_results$pruned.labels
+
+
+mouse_immune <- ImmGenData()
+mouse_immune <- NormalizeData(reference_dataset)
+mouse_immune <- LogNormalize(reference_dataset)
+
+immgen <- SingleR(test = GSE@assays$RNA$counts, ref = mouse_immune,
+                         labels = mouse_immune$label.main)
+immgen_fine <- SingleR(test = GSE@assays$RNA$counts, ref = mouse_immune,
+                           labels = mouse_immune$label.fine)
+table(immgen$labels)
+table(immgen_fine$pruned.labels)
+rownames(immgen) %in% colnames(GSE)  #double checking that everything is aligned
+
+GSE[["cell_type"]] = immgen$labels
+GSE[["cell_type refined"]] <- immgen_fine$pruned.labels
 view(GSE)
 
-DimPlot(GSE, reduction = "umap", label = TRUE, group.by = "cell_type")
+DimPlot(GSE, reduction = "cca", label = TRUE, group.by = "cell_type", repel = TRUE)
 
 
 
@@ -119,43 +135,25 @@ DimPlot(GSE, reduction = "umap", label = TRUE, repel = TRUE, group.by = "orig.id
 
 #T cells
 GSE_tcell <- subset(GSE, cell_type == "T cells")
-DimPlot(GSE_tcell, reduction = "umap", split.by = "orig.ident")
-DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
-DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
+DimPlot(GSE_tcell, reduction = "cca", split.by = "seurat_clusters")
+DimPlot(GSE_tcell, reduction = "cca", group.by = "seurat_clusters")
+DimPlot(GSE_tcell, reduction = "cca", group.by = "orig.ident")
 
-T_cells <- colnames(GSE_tcell)
-DimPlot(GSE, reduction = "umap", split.by = "orig.ident", cells.highlight = T_cells)
 
 ncol(subset(GSE_tcell, orig.ident == "D03"))
 ncol(subset(GSE_tcell, orig.ident == "D07"))
 ncol(subset(GSE_tcell, orig.ident == "D14"))
 
-JoinLayers(GSE_tcell)
+asdfasdf
+GSE_tcell <- FindNeighbors(GSE_tcell, dims = 1:2, reduction = "cca")
+GSE_tcell <- FindClusters(GSE_tcell, resolution = 0.6, cluster.name = "cca_clusters",
+                      algorithm = 4)
+DimPlot(GSE_tcell, reduction = "cca")
 GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc")
 view(GSE_tcell.markers)
 
-
-DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident")
-GSE_tcell.markers <- FindAllMarkers(GSE_tcell, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
-
-GSE_tcell11 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "11")
-GSE_tcell15 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "15")
-GSE_tcell18 <- subset(GSE_tcell.markers, GSE_tcell.markers$cluster == "18")
-GSE_tcell_power.markers <- c(GSE_tcell11$gene[which.max(GSE_tcell11$power)],
-                             GSE_tcell15$gene[which.max(GSE_tcell15$power)],
-                             GSE_tcell18$gene[which.max(GSE_tcell18$power)])
-GSE_tcell_power.markers[1]
-GSE_tcell_power.markers[2]
-GSE_tcell_power.markers[3]
-
-new.cluster.ids <- c(GSE_tcell_power.markers[1],
-                     GSE_tcell_power.markers[2],
-                     GSE_tcell_power.markers[3])
-names(new.cluster.ids) <- levels(GSE_tcell) #levels(GSE) uses markers from GSE seurat object
-#that were discovered using ROC test. highest power marker is displayed by default
-GSE_tcell <- RenameIdents(GSE_tcell,new.cluster.ids)
-DimPlot(GSE_tcell, reduction = "umap", group.by = "orig.ident", label = FALSE)
-
+FeaturePlot(GSE_tcell, reduction = "cca", features = c("Trbc1", "Trbc2"), blend = TRUE)
+?FeaturePlot
 GSE_tcell <- JoinLayers(GSE_tcell)
 cds_tcell <- SeuratWrappers::as.cell_data_set(GSE_tcell)
 cds_tcell <- cluster_cells(cds_tcell)
@@ -166,35 +164,76 @@ cds_tcell <- order_cells(cds_tcell)
 
 plot_cells(cds_tcell, color_cells_by = "pseudotime", label_branch_points = FALSE, label_leaves = FALSE)
 
-FeaturePlot(GSE_tcell, features = c("Tpt1"))
-FeaturePlot(GSE_tcell, features = c("Stmn1"), split.by = "orig.ident")
-FeaturePlot(GSE_tcell, features = c("Rpl23"))
-FeaturePlot(GSE_tcell, features = c("mt-Atp6"))
-FeaturePlot(GSE_tcell, features = c("Fau"))
-view(GSE_tcell)
-view(GSE_tcell.markers)
+
+FeaturePlot(GSE_tcell, features = c("Stmn1"), split.by = "orig.ident", reduction = "cca")
+FeaturePlot(GSE_tcell, features = c("Rpl23"), split.by = "orig.ident", reduction = "cca")
+FeaturePlot(GSE_tcell, features = c("mt-Atp6"), split.by = "orig.ident", reduction = "cca")
+FeaturePlot(GSE_tcell, features = c("Fau"), split.by = "orig.ident", reduction = "cca")
+
+GSE_tcell3 <- subset(GSE_tcell, orig.ident == "D03")
+GSE_tcell7 <- subset(GSE_tcell, orig.ident == "D07")
+GSE_tcell14 <- subset(GSE_tcell, orig.ident == "D14")
+
+FeaturePlot(GSE_tcell, features = c("Trbc2"), reduction = "cca", split.by = "orig.ident")
+
+d_3Stmn1 <- FetchData(GSE_tcell3, vars = "Trbc2")
+d_3Stmn1 <- subset(d_3Stmn1, Trbc2 > 0)
+d_7Stmn1 <- FetchData(GSE_tcell7, vars = "Trbc2")
+d_7Stmn1 <- subset(d_7Stmn1, Trbc2 > 0)
+d_14Stmn1 <- FetchData(GSE_tcell14, vars = "Trbc2")
+d_14Stmn1 <- subset(d_14Stmn1, Trbc2 > 0)
+nrow(d_3Stmn1)
+nrow(d_7Stmn1)
+nrow(d_14Stmn1)
 
 
 
 #Granulocytes
-GSE_g <- subset(GSE, cell_type == "Granulocytes")
-DimPlot(GSE_g, reduction = "umap", split.by = "orig.ident")
-DimPlot(GSE_g, reduction = "umap", group.by = "orig.ident")
-
+GSE_N <- subset(GSE, cell_type == "Neutrophils" | cell_type == "Basophils")
+DimPlot(GSE_N, reduction = "cca", split.by = "orig.ident")
+DimPlot(GSE_N, reduction = "cca", group.by = "orig.ident")
+view(GSE_N)
 view(GSE_g.markers)
 
-Granulocytes <- colnames(GSE_g)
-DimPlot(GSE, reduction = "umap", split.by = "orig.ident", cells.highlight = Granulocytes)
+GSE_Gs <- subset(GSE_N, Cd177 == 0)
+view(GSE_Gs)
+DimPlot(GSE_Gs, reduction = "cca", split.by = "orig.ident")
 
-ncol(subset(GSE_g, orig.ident == "D03"))
-ncol(subset(GSE_g, orig.ident == "D07"))
-ncol(subset(GSE_g, orig.ident == "D14"))
+
+Granulocytes <- colnames(GSE_N)
+DimPlot(GSE_N, reduction = "cca", split.by = "orig.ident")
+
+ncol(subset(GSE_Gs, orig.ident == "D03"))
+ncol(subset(GSE_Gs, orig.ident == "D07"))
+ncol(subset(GSE_Gs, orig.ident == "D14"))
+
+GSE_N3 <- subset(GSE_Gs, orig.ident == "D03")
+GSE_N7 <- subset(GSE_Gs, orig.ident == "D07")
+GSE_N14 <- subset(GSE_Gs, orig.ident == "D14")
+
+FeaturePlot(GSE_Gs, features = "Arg2", split.by = "orig.ident", reduction = "cca")
+
+d3_S100a9 <- FetchData(GSE_N3, vars = "Arg2")
+d3_S100a9 <- subset(d3_S100a9, Arg2 > 0)
+d7_S100a9 <- FetchData(GSE_N7, vars = "Arg2")
+d7_S100a9 <- subset(d7_S100a9, Arg2 > 0)
+d14_S100a9 <- FetchData(GSE_N14, vars = "Arg2")
+d14_S100a9 <- subset(d14_S100a9, Arg2 > 0)
+nrow(d3_S100a9)
+nrow(d7_S100a9)
+nrow(d14_S100a9)
+
+
+
+
+
+
 
 GSE_g.markers[["day"]][which(GSE.markers$cluster == "16")] = "D03"
 
 view(GSE_g.markers)
 view(GSE_g)
-DimPlot(GSE_g, reduction = "umap", group.by = "orig.ident")
+DimPlot(GSE_g, reduction = "cca", group.by = "orig.ident")
 GSE_g.markers <- FindAllMarkers(GSE_g, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
 
 GSE_g <- JoinLayers(GSE_g)
@@ -209,39 +248,88 @@ plot_cells(cds_g, color_cells_by = "pseudotime", label_branch_points = FALSE, la
 
 #Monocytes
 view(GSE_m)
+GSE_m <- subset(GSE, cell_type == "Monocytes")
 ncol(subset(GSE_m, orig.ident == "D03"))
 ncol(subset(GSE_m, orig.ident == "D07"))
 ncol(subset(GSE_m, orig.ident == "D14"))
 GSE_m <- subset(GSE, cell_type == "Monocytes")
 GSE_m <- subset(GSE, cell_type == "Monocytes")
-DimPlot(GSE_m, reduction = "umap", split.by = "orig.ident")
-DimPlot(GSE_m, reduction = "umap", group.by = "orig.ident")
+DimPlot(GSE_m, reduction = "cca", split.by = "orig.ident")
+DimPlot(GSE_m, reduction = "cca", group.by = "orig.ident")
 
 Monocytes <- colnames(GSE_m)
-DimPlot(GSE_m, reduction = "umap", group.by = "orig.ident")
+DimPlot(GSE_m, reduction = "cca", split.by = "orig.ident")
 
 GSE_m3 <- subset(GSE_m, orig.ident == "D03")
 GSE_m7 <- subset(GSE_m, orig.ident == "D07")
 GSE_m14 <- subset(GSE_m, orig.ident == "D14")
-FeaturePlot(GSE_m, features = "S100a9", split.by = "orig.ident")
+FeaturePlot(GSE_m, features = "S100a9", split.by = "orig.ident", reduction = "cca")
 
 d3_S100a9 <- FetchData(GSE_m3, vars = "S100a9")
-d3_S100a9 <- subset(d3_S100a9, "S100a9" > 0)
-nrow(d3_S100a9)
-ncol(GSE_m3)
-
+d3_S100a9 <- subset(d3_S100a9, S100a9 > 0)
 d7_S100a9 <- FetchData(GSE_m7, vars = "S100a9")
-d7_S100a9 <- subset(d7_S100a9, "S100a9" > 0)
-nrow(d7_S100a9)
-ncol(GSE_m7)
-
+d7_S100a9 <- subset(d7_S100a9, S100a9 > 0)
 d14_S100a9 <- FetchData(GSE_m14, vars = "S100a9")
-d14_S100a9 <- subset(d14_S100a9, "S100a9" > 0)
+d14_S100a9 <- subset(d14_S100a9, S100a9 > 0)
+nrow(d3_S100a9)
+nrow(d7_S100a9)
 nrow(d14_S100a9)
-ncol(GSE_m14)
+view(GSE_m)
+
+FeaturePlot(GSE_m, features = "Arg2", split.by = "orig.ident", reduction = "cca")
+d3_Arg2 <- FetchData(GSE_m3, vars = "Arg2")
+d3_Arg2 <- subset(d3_Arg2, Arg2 > 0)
+d7_Arg2 <- FetchData(GSE_m7, vars = "Arg2")
+d7_Arg2 <- subset(d7_Arg2, Arg2 > 0)
+d14_Arg2 <- FetchData(GSE_m14, vars = "Arg2")
+d14_Arg2 <- subset(d14_Arg2, Arg2 > 0)
+nrow(d3_Arg2)
+nrow(d7_Arg2)
+nrow(d14_Arg2)
+
+#Macrophages
+view(GSE_M)
+GSE_M <- subset(GSE, cell_type == "Macrophages")
+ncol(subset(GSE_m, orig.ident == "D03"))
+ncol(subset(GSE_m, orig.ident == "D07"))
+ncol(subset(GSE_m, orig.ident == "D14"))
 
 
-FeaturePlot(GSE_m, features = "Arg2", split.by = "orig.ident")
+
+DimPlot(GSE_M, reduction = "cca", split.by = "orig.ident")
+DimPlot(GSE_M, reduction = "cca", group.by = "orig.ident")
+
+Macrophages <- colnames(GSE_M)
+DimPlot(GSE_M, reduction = "cca", split.by = "orig.ident")
+
+?FindNeighbors()
+GSE_M <- FindNeighbors(GSE_M, dims = 1:10, reduction = "cca")
+GSE_M <- FindClusters(GSE_M, resolution = 0.6, cluster.name = "cca_clusters",
+                    algorithm = 4)
+view(GSE_M)
+
+GSE_M <- RunUMAP(GSE_M, dims = 1:34, reduction.name = "cca")
+
+GSE_M3 <- subset(GSE_M, orig.ident == "D03")
+ncol(GSE_M3)
+GSE_M7 <- subset(GSE_M, orig.ident == "D07")
+ncol(GSE_M7)
+GSE_M14 <- subset(GSE_M, orig.ident == "D14")
+ncol(GSE_M14)
+
+FeaturePlot(GSE_M, features = "Tnfaip2", split.by = "orig.ident", reduction = "cca")
+FeaturePlot(GSE_M, features = "Il10", split.by = "orig.ident", reduction = "cca")
+
+d3_S100a9 <- FetchData(GSE_M3, vars = "Il10")
+d3_S100a9 <- subset(d3_S100a9, Il10 > 0)
+d7_S100a9 <- FetchData(GSE_M7, vars = "Il10")
+d7_S100a9 <- subset(d7_S100a9, Il10 > 0)
+d14_S100a9 <- FetchData(GSE_M14, vars = "Il10")
+d14_S100a9 <- subset(d14_S100a9, Il10 > 0)
+nrow(d3_S100a9)
+nrow(d7_S100a9)
+nrow(d14_S100a9)
+
 
 
 
@@ -253,7 +341,7 @@ ncol(subset(GSE_g, orig.ident == "D14"))
 
 view(GSE_g.markers)
 
-DimPlot(GSE_g, reduction = "umap", group.by = "orig.ident")
+DimPlot(GSE_g, reduction = "cca", group.by = "orig.ident")
 GSE_g.markers <- FindAllMarkers(GSE_g, test.use = "roc") %>% group_by(cluster) %>% filter(avg_log2FC > 1)
 
 GSE_g <- JoinLayers(GSE_g)
@@ -280,7 +368,7 @@ GSE_M <- subset(GSE, cell_type == "Macrophages")
 ncol(subset(GSE_M, orig.ident == "D03"))
 ncol(subset(GSE_M, orig.ident == "D07"))
 ncol(subset(GSE_M, orig.ident == "D14"))
-DimPlot(GSE_m, split.by = "orig.ident")
+DimPlot(GSE_M, split.by = "orig.ident", reduction = "cca")
 
 GSE_MA <- subset(GSE, cell_type == "Macrophages activated")
 ncol(subset(GSE_MA, orig.ident == "D03"))
